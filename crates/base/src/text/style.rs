@@ -31,6 +31,7 @@ pub struct TextViewStyle {
     list_style: StyleRefinement,
     /// Explicit blockquote refinements, applied after theme and surface colors.
     blockquote_style: StyleRefinement,
+    task_colors: Option<[Hsla; 3]>,
     /// The table body background, or the theme surface when `None`. Only
     /// [`Self::on_text_color`] sets it, to let a table on an inverted surface
     /// show that surface.
@@ -57,6 +58,7 @@ impl PartialEq for TextViewStyle {
             && self.inline_code_style == other.inline_code_style
             && self.list_style == other.list_style
             && self.blockquote_style == other.blockquote_style
+            && self.task_colors == other.task_colors
             && self.table_background == other.table_background
             && self.is_dark == other.is_dark
     }
@@ -103,6 +105,7 @@ impl TextViewStyle {
             inline_code_style: StyleRefinement::default(),
             list_style: StyleRefinement::default(),
             blockquote_style: StyleRefinement::default(),
+            task_colors: None,
             table_background: None,
             is_dark,
         }
@@ -223,6 +226,36 @@ impl TextViewStyle {
     pub fn with_blockquote_style(mut self, style: StyleRefinement) -> Self {
         self.blockquote_style = style;
         self
+    }
+
+    /// Overrides the unchecked border, checked fill, and check foreground of task items.
+    /// Link and body text colors remain independent.
+    pub fn with_task_colors(mut self, border: Hsla, checked_background: Hsla, check: Hsla) -> Self {
+        self.task_colors = Some([border, checked_background, check]);
+        self
+    }
+
+    /// Task border, falling back to the list marker foreground.
+    pub fn task_border(&self) -> Hsla {
+        self.task_colors
+            .map(|colors| colors[0])
+            .unwrap_or_else(|| self.list_style.text.color.unwrap_or(self.muted_foreground))
+    }
+
+    /// Checked task fill, falling back to the link color.
+    pub fn task_checked_background(&self) -> Hsla {
+        self.task_colors.map_or(self.link, |colors| colors[1])
+    }
+
+    /// Check foreground, retaining the existing light/dark contrast default when unset.
+    pub fn task_check(&self) -> Hsla {
+        self.task_colors.map(|colors| colors[2]).unwrap_or_else(|| {
+            if self.is_dark {
+                Hsla::black()
+            } else {
+                Hsla::white()
+            }
+        })
     }
 
     /// Sets the style refinement for the table container (the bordered wrapper
@@ -440,6 +473,22 @@ mod tests {
     use gpui::{Styled as _, px};
 
     use super::*;
+
+    #[test]
+    fn task_palette_is_independent_from_links_and_invalidates_style_identity() {
+        let base = TextViewStyle::default();
+        assert_eq!(base.task_checked_background(), base.link());
+        let border = Hsla::red();
+        let background = Hsla::blue();
+        let check = Hsla::green();
+        let overridden = base.clone().with_task_colors(border, background, check);
+        assert!(overridden != base);
+        assert_eq!(overridden.link(), base.link());
+        assert_eq!(overridden.foreground(), base.foreground());
+        assert_eq!(overridden.task_border(), border);
+        assert_eq!(overridden.task_checked_background(), background);
+        assert_eq!(overridden.task_check(), check);
+    }
 
     #[test]
     fn selection_layout_fingerprint_covers_callback_table_and_theme_fields() {

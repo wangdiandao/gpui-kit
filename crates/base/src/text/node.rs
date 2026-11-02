@@ -39,9 +39,6 @@ use super::{
     utils::{data_url_image, list_item_prefix, ordered_list_ordinal},
 };
 
-const CHECK_SVG_LIGHT: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path d="m3.25 8.25 3 3 6.5-7" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
-const CHECK_SVG_DARK: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path d="m3.25 8.25 3 3 6.5-7" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
-
 /// The block-level nodes.
 ///
 /// This is the document tree TextView renders. Together with
@@ -3761,11 +3758,9 @@ impl BlockNode {
             })
             .when_some(checked, |this, checked| {
                 // Todo list checkbox
-                let check_svg = if style.is_dark() {
-                    CHECK_SVG_DARK
-                } else {
-                    CHECK_SVG_LIGHT
-                };
+                let check = style.task_check().to_rgb();
+                let rgb = u32::from(check) >> 8;
+                let check_svg = format!(r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path d="m3.25 8.25 3 3 6.5-7" stroke="#{rgb:06x}" stroke-opacity="{}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>"##, check.a);
                 this.child(
                     div()
                         .flex()
@@ -3782,18 +3777,12 @@ impl BlockNode {
                                 .justify_center()
                                 .rounded(px(4.))
                                 .border(px(1.5))
-                                .border_color(
-                                    style
-                                        .list_style()
-                                        .text
-                                        .color
-                                        .unwrap_or(style.muted_foreground()),
-                                )
+                                .border_color(style.task_border())
                                 .when(checked, |this| {
-                                    this.bg(style.link()).border_color(style.link()).child(
+                                    this.bg(style.task_checked_background()).border_color(style.task_checked_background()).child(
                                         img(Arc::new(Image::from_bytes(
                                             ImageFormat::Svg,
-                                            check_svg.to_vec(),
+                                            check_svg.into_bytes(),
                                         )))
                                         .size(rems(0.75)),
                                     )
