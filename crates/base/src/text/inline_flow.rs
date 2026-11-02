@@ -2226,6 +2226,7 @@ mod tests {
                     font_family: Some(MONO.into()),
                     font_size_scale: Some(0.875),
                     code_style: Some(code_style.clone()),
+                    baseline_shift: None,
                     style: HighlightStyle {
                         background_color: Some(gpui::green()),
                         ..Default::default()
@@ -2416,6 +2417,7 @@ mod tests {
 
     #[test]
     fn ordinary_scaled_runs_shift_their_baselines_without_code_geometry() {
+        use crate::text::inline::test_fonts::{BODY, WideMonoTextSystem};
         use gpui::{Empty, TestApp};
         let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
         let mut window = app.open_window(|_, _| Empty);
