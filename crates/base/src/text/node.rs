@@ -1014,6 +1014,8 @@ pub struct InlineNode {
     /// The text styles, each tuple contains the range of the text and the style.
     pub(crate) marks: Vec<(Range<usize>, TextMark)>,
     foreground: Option<Hsla>,
+    font_size_scale: Option<f32>,
+    baseline_shift: Option<f32>,
     /// Rendered UTF-8 byte spans paired with their exact Markdown source spans.
     pub(crate) source_segments: Vec<SourceSegment>,
 
@@ -1027,6 +1029,8 @@ impl PartialEq for InlineNode {
             && self.custom == other.custom
             && self.marks == other.marks
             && self.foreground == other.foreground
+            && self.font_size_scale == other.font_size_scale
+            && self.baseline_shift == other.baseline_shift
             && self.source_segments == other.source_segments
     }
 }
@@ -1484,6 +1488,8 @@ impl InlineNode {
             custom_selection: Arc::default(),
             marks: vec![],
             foreground: None,
+            font_size_scale: None,
+            baseline_shift: None,
             source_segments: vec![],
             state: Arc::new(Mutex::new(InlineState::default())),
         }
@@ -1521,15 +1527,46 @@ impl InlineNode {
         self.foreground
     }
 
+    /// Scales this run's font relative to its enclosing text, without changing its bytes.
+    /// Non-finite and non-positive values reset the scale to the enclosing size.
+    pub fn with_font_size_scale(mut self, scale: f32) -> Self {
+        self.font_size_scale = (scale.is_finite() && scale > 0.).then_some(scale);
+        self
+    }
+
+    /// Explicit relative font size, or `None` to inherit the enclosing size.
+    pub fn font_size_scale(&self) -> Option<f32> {
+        self.font_size_scale
+    }
+
+    /// Shifts the baseline in enclosing-font ems; positive values move text down.
+    /// Non-finite values reset the shift to the enclosing baseline.
+    pub fn with_baseline_shift(mut self, shift: f32) -> Self {
+        self.baseline_shift = shift.is_finite().then_some(shift);
+        self
+    }
+
+    /// Explicit baseline shift in enclosing-font ems, or `None` to inherit it.
+    pub fn baseline_shift(&self) -> Option<f32> {
+        self.baseline_shift
+    }
+
     fn foreground_highlight(&self, offset: usize) -> Option<(Range<usize>, InlineHighlight)> {
-        self.foreground.map(|color| {
+        (self.foreground.is_some()
+            || self.font_size_scale.is_some()
+            || self.baseline_shift.is_some())
+        .then(|| {
             (
                 offset..offset + self.text.len(),
-                HighlightStyle {
-                    color: Some(color),
+                InlineHighlight {
+                    style: HighlightStyle {
+                        color: self.foreground,
+                        ..Default::default()
+                    },
+                    font_size_scale: self.font_size_scale,
+                    baseline_shift: self.baseline_shift,
                     ..Default::default()
-                }
-                .into(),
+                },
             )
         })
     }
@@ -2801,6 +2838,7 @@ fn mark_highlight(mark: &TextMark, node_cx: &NodeContext, cx: &App) -> InlineHig
         style: highlight,
         font_family,
         font_size_scale: mark.code.then_some(0.875),
+        baseline_shift: None,
         code_style: mark.code.then(|| node_cx.style.inline_code_style().clone()),
     }
 }
@@ -3052,6 +3090,10 @@ impl Paragraph {
             return true;
         }
         self.children.iter().any(|child| child.custom.is_some())
+            || self
+                .children
+                .iter()
+                .any(|child| child.font_size_scale.is_some() || child.baseline_shift.is_some())
             || (has_image && has_text)
             || self
                 .children

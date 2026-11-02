@@ -46,6 +46,7 @@ pub(super) struct InlineHighlight {
     pub(super) style: HighlightStyle,
     pub(super) font_family: Option<SharedString>,
     pub(super) font_size_scale: Option<f32>,
+    pub(super) baseline_shift: Option<f32>,
     /// Typography and box refinements for an inline code span.
     pub(super) code_style: Option<StyleRefinement>,
 }
@@ -62,7 +63,7 @@ impl InlineHighlight {
 
     /// Insets used by shaping, wrapping, painting, and table measurement alike.
     pub(super) fn code_insets(&self, font_size: Pixels, rem_size: Pixels) -> Edges<Pixels> {
-        if self.font_size_scale.is_none() {
+        if self.code_style.is_none() {
             return Edges::default();
         }
         let mut insets = Edges {
@@ -112,6 +113,9 @@ impl InlineHighlight {
         if other.font_size_scale.is_some() {
             self.font_size_scale = other.font_size_scale;
         }
+        if other.baseline_shift.is_some() {
+            self.baseline_shift = other.baseline_shift;
+        }
         if other.code_style.is_some() {
             self.code_style = other.code_style.clone();
         }
@@ -125,6 +129,7 @@ impl From<HighlightStyle> for InlineHighlight {
             style,
             font_family: None,
             font_size_scale: None,
+            baseline_shift: None,
             code_style: None,
         }
     }
@@ -263,7 +268,7 @@ pub(super) fn code_insets(
 ) -> Edges<Pixels> {
     highlights
         .iter()
-        .find(|(_, highlight)| highlight.font_size_scale.is_some())
+        .find(|(_, highlight)| highlight.code_style.is_some())
         .map(|(_, highlight)| highlight.code_insets(font_size, rem_size))
         .unwrap_or_default()
 }
@@ -276,35 +281,37 @@ pub(super) fn text_size_ranges(
     font_size: Pixels,
     rem_size: Pixels,
 ) -> Vec<(Range<usize>, f32)> {
-    let mut ranges: Vec<(Range<usize>, f32, bool)> = Vec::new();
-    let mut push = |range: Range<usize>, scale: f32, code: bool| {
+    let mut ranges: Vec<(Range<usize>, f32, bool, Option<f32>)> = Vec::new();
+    let mut push = |range: Range<usize>, scale: f32, code: bool, shift: Option<f32>| {
         if range.is_empty() {
             return;
         }
-        if let Some((last, last_scale, last_code)) = ranges.last_mut()
+        if let Some((last, last_scale, last_code, last_shift)) = ranges.last_mut()
             && *last_scale == scale
             && *last_code == code
+            && *last_shift == shift
             && last.end == range.start
         {
             last.end = range.end;
         } else {
-            ranges.push((range, scale, code));
+            ranges.push((range, scale, code, shift));
         }
     };
     let mut cursor = 0;
     for (range, highlight) in highlights {
-        push(cursor..range.start, 1., false);
+        push(cursor..range.start, 1., false, None);
         push(
             range.clone(),
             highlight.font_size(font_size, rem_size) / font_size,
-            highlight.font_size_scale.is_some(),
+            highlight.code_style.is_some(),
+            highlight.baseline_shift,
         );
         cursor = range.end;
     }
-    push(cursor..text_len, 1., false);
+    push(cursor..text_len, 1., false, None);
     ranges
         .into_iter()
-        .map(|(range, scale, _)| (range, scale))
+        .map(|(range, scale, _, _)| (range, scale))
         .collect()
 }
 
@@ -2421,6 +2428,7 @@ mod tests {
             style,
             font_family: Some(SharedString::from("Mono")),
             font_size_scale: None,
+            baseline_shift: None,
             code_style: None,
         }
     }

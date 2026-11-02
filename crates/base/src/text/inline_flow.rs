@@ -1088,7 +1088,7 @@ fn layout_measured_flow(
                         let segment_font_size = font_size * scale;
                         let shaped_line =
                             shape_line(subtext.clone(), segment_font_size, &runs, window);
-                        let is_code = highlights.iter().any(|(_, h)| h.font_size_scale.is_some());
+                        let is_code = highlights.iter().any(|(_, h)| h.code_style.is_some());
                         let insets = code_insets(&highlights, segment_font_size, window.rem_size());
                         let width = shaped_line.width() + insets.left + insets.right;
                         // Measure the run by its glyph box. The body strut already
@@ -1102,7 +1102,11 @@ fn layout_measured_flow(
                             width,
                             shaped_line.ascent + shaped_line.descent + insets.top + insets.bottom,
                         );
-                        let baseline = shaped_line.ascent + insets.top;
+                        let shift = highlights
+                            .iter()
+                            .find_map(|(_, highlight)| highlight.baseline_shift)
+                            .unwrap_or(0.);
+                        let baseline = shaped_line.ascent + insets.top - font_size * shift;
                         let code_background = is_code
                             .then(|| {
                                 code_background(
@@ -2026,6 +2030,7 @@ mod tests {
             style: HighlightStyle::default(),
             font_family: Some(SharedString::from(MONO)),
             font_size_scale: None,
+            baseline_shift: None,
             code_style: None,
         };
         let items = vec![
@@ -2181,6 +2186,7 @@ mod tests {
                 InlineHighlight {
                     font_family: Some(MONO.into()),
                     font_size_scale: Some(0.875),
+                    code_style: Some(Default::default()),
                     ..Default::default()
                 },
             )],
@@ -2309,6 +2315,7 @@ mod tests {
                     InlineHighlight {
                         font_family: Some(MONO.into()),
                         font_size_scale: Some(0.875),
+                        code_style: Some(Default::default()),
                         ..Default::default()
                     },
                 )],
@@ -2370,6 +2377,7 @@ mod tests {
                                     InlineHighlight {
                                         font_family: Some(MONO.into()),
                                         font_size_scale: Some(0.875),
+                                        code_style: Some(Default::default()),
                                         ..Default::default()
                                     },
                                 )],
@@ -2401,6 +2409,82 @@ mod tests {
                     painted_glyph_baseline(&text_fragments[1]),
                     plain_body_baseline,
                     "{body_size}px code glyph baseline"
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn ordinary_scaled_runs_shift_their_baselines_without_code_geometry() {
+        use gpui::{Empty, TestApp};
+        let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
+        let mut window = app.open_window(|_, _| Empty);
+        for body_size in [16., 24.] {
+            let style = TextStyle {
+                font_family: BODY.into(),
+                font_size: AbsoluteLength::Pixels(px(body_size)),
+                ..Default::default()
+            };
+            let items = vec![MeasureItem::Text {
+                text: "aXbYc".into(),
+                links: vec![],
+                highlights: vec![
+                    (
+                        1..2,
+                        InlineHighlight {
+                            font_size_scale: Some(0.75),
+                            baseline_shift: Some(-0.35),
+                            ..Default::default()
+                        },
+                    ),
+                    (
+                        3..4,
+                        InlineHighlight {
+                            font_size_scale: Some(0.75),
+                            baseline_shift: Some(0.2),
+                            ..Default::default()
+                        },
+                    ),
+                ],
+            }];
+            window.update(|_, window, cx| {
+                let layout = layout_flow(&items, &[None], &style, None, window, cx);
+                let fragments = layout
+                    .fragments
+                    .iter()
+                    .filter_map(|fragment| {
+                        let PositionedFragment::Text {
+                            text,
+                            font_size,
+                            origin,
+                            size,
+                            code_background,
+                            ..
+                        } = fragment
+                        else {
+                            return None;
+                        };
+                        assert!(code_background.is_none());
+                        let runs = text_runs(text.len(), &style, &[]);
+                        let shaped = shape_line(text.clone(), *font_size, &runs, window);
+                        let baseline = origin.y
+                            + (size.height - shaped.ascent - shaped.descent) / 2.
+                            + shaped.ascent;
+                        Some((text.as_ref(), *font_size, baseline, size.width))
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(fragments.len(), 5);
+                assert_eq!(fragments[1].1, px(body_size * 0.75));
+                assert_eq!(fragments[3].1, px(body_size * 0.75));
+                assert!((fragments[1].2 - fragments[0].2 + px(body_size * 0.35)).abs() < px(0.01));
+                assert!((fragments[3].2 - fragments[0].2 - px(body_size * 0.2)).abs() < px(0.01));
+                assert_eq!(
+                    fragments[1].3,
+                    WideMonoTextSystem::width_of("X", BODY, px(body_size * 0.75))
+                );
+                assert_eq!(
+                    fragments[3].3,
+                    WideMonoTextSystem::width_of("Y", BODY, px(body_size * 0.75))
                 );
             });
         }
