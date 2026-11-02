@@ -3764,7 +3764,7 @@ impl BlockNode {
                 this.child(
                     div()
                         .flex()
-                        .mr_2()
+                        .w(indent)
                         .h(line_height)
                         .flex_none()
                         .items_center()

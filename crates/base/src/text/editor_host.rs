@@ -798,6 +798,23 @@ mod tests {
         paragraph
     }
 
+    #[gpui::test]
+    fn task_and_ordinary_list_text_share_the_marker_column(cx: &mut TestAppContext) {
+        let blocks = [None, Some(false), Some(true)].into_iter().enumerate().map(|(ix, checked)| {
+            BlockNode::List {
+                ordered: false, start: None, span: None,
+                children: vec![BlockNode::ListItem {
+                    checked, spread: false, span: None,
+                    children: vec![BlockNode::Paragraph(plain("text").with_leaf_key(ix as u64 + 1))],
+                }],
+            }
+        }).collect();
+        let geometries = draw(cx, blocks, HashMap::new(), Default::default(), px(300.));
+        let x = geometries[&1].position_for_index(0).x;
+        assert_eq!(geometries[&2].position_for_index(0).x, x);
+        assert_eq!(geometries[&3].position_for_index(0).x, x);
+    }
+
     fn atom_plugin() -> Arc<MarkdownExtensions> {
         Arc::new(
             MarkdownExtensions::default().plugin(TestInlinePlugin::new("atom").render_with(
